@@ -26,8 +26,8 @@ class GraphGenerationProcess(torch.nn.Module):
         
         #hv initialize
         self.node_representation_layer = torch.nn.Linear(hidden_dim, hidden_dim*2)
-        self.gate_layer = torch.nn.Linear(hidden_dim, 1)
-        self.f_init = torch.nn.Linear(hidden_dim + hidden_dim*2, hidden_dim)
+        self.gate_layer = torch.nn.Linear(hidden_dim, hidden_dim*2)
+        self.embed_init_layer = torch.nn.Linear(hidden_dim + hidden_dim*2, hidden_dim)
         
         
 
@@ -52,17 +52,24 @@ class GraphGenerationProcess(torch.nn.Module):
         B, N, C = h.size()
         h_v = torch.randn(h.size()).view(-1, C)
         h_v_g = self.node_representation_layer(h_v)
-        g_v = F.sigmoid(self.gate_layer(h_v))
+        g_v = F.sigmoid(self.gate_layer(h_v)).view(-1, 1)
+        print(g_v.size())
+        print(h_v_g.size())
         h_G = torch.sum(torch.mul(g_v, h_v_g).view(B, N, -1), 1, keepdim=True)
-        print(h_v.size())
-        print(h_G.size())        
-        torch.cat((h.view(3, C), h_G.view(1, 2*C)), dim=1)
+        print(h_G.size())
+        print(h.size())        
+        _h = torch.cat((h, h_G), dim=2)
+        print(_h.size())        
+        _h_new = self.embed_init_layer(_h.view(-1, C))
+
+        return _h._new(B, 1, -1)
+                                       
 
 
 if __name__ == '__main__':
     
     g = GraphGenerationProcess(5, 10, 10)
-    x = torch.Tensor([[1, 0, 0]]).long()
+    x = torch.Tensor([[1, 0, 0, 0]]).long()
     adj = torch.eye(3).view(1, 3, 3)
     y = g(x, adj)
     
