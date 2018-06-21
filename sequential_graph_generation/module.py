@@ -9,9 +9,7 @@ import torch.nn.utils.rnn as rnn_utils
 class SGGM(torch.nn.Module):
     '''
     SGGM stands for 'Sequential Generative Graph Model'.
-    Thare are two phase which are called 'learning phase and generative phase' 
-    in this model.
-    see: https://arxiv.org/abs/1803.03324
+    * see: https://arxiv.org/abs/1803.03324
     '''
     def __init__(self,
                  hidden_dim:int,
@@ -32,8 +30,8 @@ class SGGM(torch.nn.Module):
                                  * num_edge_type
         self.embed_node_layer = torch.nn.Embedding(num_node_type, hidden_dim, padding_idx=0)
         self.embed_edge_layer = torch.nn.Embedding(num_edge_type, hidden_dim, padding_idx=0)
-        self.foward_message_layer = nn.Linear(3*hidden_dim, 2*3*hidden_dim)
-        self.rnn_cell = getattr(nn, celltype)(2*3*hidden_dim, None)
+        self.foward_message_layer = nn.Linear(3 * hidden_dim, 2 * 3 * hidden_dim)
+        self.rnn_cell = getattr(nn, celltype)(2 * 3 * hidden_dim, None)
         # Multiplying by 2 in the number of output dimenssion is hyper parameter.
         # And this value comes from original paper.
         
@@ -54,28 +52,27 @@ class SGGM(torch.nn.Module):
             features.append(torch.masked_select(adj_matrix[i], mask))
         return rnn_utils.pad_sequence(features, batch_first=True)
     
-    def forward(self, x, adj_matrix):
+    def forward(self, num_of_sampels):
         """
-        Learning process:
-        This adjancy matrix is not as same as ordinay adjency matrix.
-        The value in adjance matrix represents a bond type.
-        >>> adj_matrix
-        [[[ 0,  1,  0,  0,  0,  0],
-          [ 1,  0,  2,  0,  3,  0],
-          [ 0,  2,  0,  4,  0,  0],
-          [ 0,  0,  4,  0,  1,  0],
-          [ 0,  3,  0,  1,  0,  1],
-          [ 0,  0,  0,  0,  1,  0]]
-        There are 4 edge types in this matrix. This matrix show that the edge
-        between 2nd and 3rd elements is 2nd type.
+        Generate 
         """
-        pair_list = self.adj_matrix_to_nodelist(adj_matrix)
+        nodes = torch.Tesnor([]).long()
+        edges = torch.Tesnor([]).long()
+
+        
         #edge_features = self.get_edge_features(adj_matrix)
         h_node = self.embed_node_layer(x)
         #h_edge = self.embed_edge_layer(edge_features)
         h_edge = self.embed_edge_layer(adj_matrix)        
         h_G = self.propagate(h_node, h_edge, pair_list)
+        
+    
 
+        
+    def f_addnode(self, nodes, edges):
+        pass
+
+        
     def propagate(self, h_node, h_edge, pairlist):
         N = pairlist.size(0)
         message_inputs = []        
