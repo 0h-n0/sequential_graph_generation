@@ -102,3 +102,4 @@ example/pytorch/*
 \.*#
 
 exp/*
+\.\#*
