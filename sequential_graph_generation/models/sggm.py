@@ -2,8 +2,11 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.distributions as dists
 import torch.nn.functional as F
 import torch.nn.utils.rnn as rnn_utils
+
+from .basic import GraphLinear
 
 
 class SGGM(torch.nn.Module):
@@ -15,12 +18,16 @@ class SGGM(torch.nn.Module):
                  hidden_dim:int,
                  num_node_type: int,
                  num_edge_type: int,
-                 num_pair_type: int=None,                 
+                 max_num_node: int=15,           
+                 num_pair_type: int=None,
                  celltype="GRU"):
         super(SGGM, self).__init__()
+        torch.manual_seed(1)
+        
         self.hidden_dim = hidden_dim
         self.num_node_type = num_node_type        # NN
         self.num_edge_type = num_edge_type        # NE
+        self.max_num_node = max_num_node
         if num_pair_type == None:
             self.num_pair_type = num_pair_type
         else:
@@ -29,11 +36,19 @@ class SGGM(torch.nn.Module):
                                  // math.factorial(num_node_type - 2) \
                                  * num_edge_type
         self.embed_node_layer = torch.nn.Embedding(num_node_type, hidden_dim, padding_idx=0)
+        self.embed_node_type_layer = torch.nn.Embedding(num_node_type, hidden_dim, padding_idx=0)
         self.embed_edge_layer = torch.nn.Embedding(num_edge_type, hidden_dim, padding_idx=0)
+        
         self.foward_message_layer = nn.Linear(3 * hidden_dim, 2 * 3 * hidden_dim)
-        self.rnn_cell = getattr(nn, celltype)(2 * 3 * hidden_dim, None)
+        self.rnn_cell = getattr(nn, celltype)(2 * 3 * hidden_dim, 3, 3)
         # Multiplying by 2 in the number of output dimenssion is hyper parameter.
         # And this value comes from original paper.
+
+        if num_node_type == 1:
+            self.addnode_layer = nn.Linear(num_node_type, num_node_type)
+        else:
+            self.addnode_layer = nn.Linear(num_node_type, num_node_type + 1)
+
         
         # self.reverse_message_layer = nn.Linear(3*hidden_dim, 2*3*hidden_dim)
         # Not use reverse layer. This is because I don't support parsing task with this model.
@@ -52,25 +67,33 @@ class SGGM(torch.nn.Module):
             features.append(torch.masked_select(adj_matrix[i], mask))
         return rnn_utils.pad_sequence(features, batch_first=True)
     
-    def forward(self, num_of_sampels):
+    def forward(self, sample_size=1):
+        """x
+        Generate distribution from sample_size.
         """
-        Generate 
-        """
-        nodes = torch.Tesnor([]).long()
-        edges = torch.Tesnor([]).long()
+        completed_graph_list = []
+        
+        h_G = torch.zeros(sample_size, self.num_node_type)
+        _c = dists.Categorical(logits=F.log_softmax(self.addnode_layer(h_G)))
+        nodes = _c.sample().view(sample_size, 1)
+
+        h_nodes = self.embed_node_layer(nodes)
+        
+        while True:
+            h_nodes = self.get_node_reporesentation(h_nodes,)
+
+    def initilize_h_node(self, h_nodes):
+        
+        pass
+
 
         
         #edge_features = self.get_edge_features(adj_matrix)
-        h_node = self.embed_node_layer(x)
+
+        
         #h_edge = self.embed_edge_layer(edge_features)
         h_edge = self.embed_edge_layer(adj_matrix)        
         h_G = self.propagate(h_node, h_edge, pair_list)
-        
-    
-
-        
-    def f_addnode(self, nodes, edges):
-        pass
 
         
     def propagate(self, h_node, h_edge, pairlist):
@@ -115,5 +138,5 @@ if __name__ == '__main__':
     adj_1 = torch.nn.ZeroPad2d((1, 0, 0, 1))(torch.eye(5))
     adj_2 = torch.nn.ZeroPad2d((1, 1, 0, 2))(torch.eye(4))
     padded_adj_matrix = torch.stack((adj_1, adj_2)).long()
-    y = g(x, padded_adj_matrix)
+    y = g(sample_size=5)
     
