@@ -9,16 +9,37 @@ import torch.nn.utils.rnn as rnn_utils
 from .basic import GraphLinear
 
 
+class AggregationBlock(torch.nn.Module):
+    def __init__(self,
+                 input_dim:int,                 
+                 hidden_dim:int,
+                 ):
+        super(AggregationBlock, self).__init__()        
+        self.fc = nn.Linear(input_dim, hidden_dim)
+        self.gate = nn.Linear(input_dim, hidden_dim)
+
+    def forward(self, x):
+        '''
+        args:
+            x: emmbeded nodes vector
+        '''
+        fc_x = self.fc(x)
+        gated_x = F.sigmoid(self.gate(x))
+        h_G = torch.sum(torch.mul(fc_x, gated_x), 0, keepdim=True)
+
+        return h_G
+
+
 class PropagationBlock(torch.nn.Module):
     def __init__(self,
-                 hidden_size,
+                 hidden_dim,
                  celltype="GRU",
                  reccurent_dropout=0.5,
                  reverse_direction=False,
                  num_round=3,
                  ):
         super(PropagationBlock, self).__init__()
-        self.hidden_size = hidden_size
+        self.hidden_dim = hidden_dim
         self.reccurent_dropout = reccurent_dropout
         self.reverse_direction = reverse_direction
         self.num_round = num_round
@@ -28,36 +49,35 @@ class PropagationBlock(torch.nn.Module):
         
         self.foward_message_layer = \
                             nn.ModuleList([
-                            nn.Linears(3 * hidden_dim, 2 * 3 * hidden_dim)
+                            nn.Linear(3 * hidden_dim, 2 * 3 * hidden_dim)
                             for i in range(num_round)])
         
         if self.reverse_direction:
             self.reverse_message_layer = \
                             nn.ModuleList([                                         
-                            nn.Linears(3 * hidden_dim, 2 * 3 * hidden_dim)
+                            nn.Linear(3 * hidden_dim, 2 * 3 * hidden_dim)
                             for i in range(num_round)])                                                                
         # Multiplying by 2 in the number of output dimenssion is hyper parameter.
         # And this value comes from original paper.
 
-    def forward(self, embedded_node, embedded_adjancy_matrix):
-        N = pairlist.size(0)
+    def forward(self, h_node, h_adj_matrix):
+        #N = pairlist.size(0)
         message_inputs = []        
         _message_inputs = []
         pre_b = None
-        batchsize = embedded_node.size(0)
-        sequence_lenghts = embedded_node.size(1)
+        batchsize = h_node.size(0)
+        sequence_lenghts = h_node.size(1)
         
         for T in range(self.num_round):
             for B in range(batchsize):
                 for S in range(sequence_lenghts):
-                    message_inputs.append(torch.stack(_message_inputs))
                     _message_inputs = []
                     _message_inputs.append(torch.cat((h_node[b, :, :],
                                                       h_node[b, :, :],
-                                                      h_edge[b, i, j, :])))
+                                                      h_adj_matrix[b, i, j, :])))
                     _message_inputs.append(torch.cat((h_node[b, i, :],
                                                   h_node[b, j, :],
-                                                  h_edge[b, i, j, :])))
+                                                  h_adj_matrix[b, i, j, :])))
                 if n == N-1:
                     message_inputs.append(torch.stack(_message_inputs))                    
             pre_b = b
@@ -68,11 +88,12 @@ class PropagationBlock(torch.nn.Module):
         m = m.view(B*NN, C)
         m = self.foward_message_layer(m)
         m = o.view(B, NN, C)
+        
         ## TODO: add aggrigation layer
         ## TODO: add update layer
         return h_G
 
-
+    
 class SGGM(torch.nn.Module):
     '''
     SGGM stands for 'Sequential Generative Graph Model'.
@@ -112,8 +133,11 @@ class SGGM(torch.nn.Module):
             self.addnode_layer = nn.Linear(num_node_type, num_node_type)
         else:
             self.addnode_layer = nn.Linear(num_node_type, num_node_type + 1)
+            
+        self.addedge_layer = nn.Linear(num_node_type, num_node_type)
+            
+        self.initilize_h_block = AggregationBlock(hidden_dim, hidden_dim * 2)
 
-        
         # self.reverse_message_layer = nn.Linear(3*hidden_dim, 2*3*hidden_dim)
         # Not use reverse layer. This is because I don't support parsing task with this model.
 
@@ -143,19 +167,28 @@ class SGGM(torch.nn.Module):
         samples = self.f_addnode()
         while True:
             vertices = torch.cat((vertices, samples))
-            add_edge_flag = self.f_addedge()
-            h_nodes = self.get_node_reporesentation(h_nodes,)
+            h_v = self.embed_node_layer(vertices)
+            h_G = self.initilize_h_block(h_v)
+            
+            edges = self.f_addedge(h_G)
+            
+            #h_nodes = self.get_node_reporesentation(h_nodes,)
             while add_edge_flag == 1:
                 self.f_nodes()
                 add_edge_flag = self.f_addedge()
             samples = self.f_addnode()
-                
+            break
+        
     def f_nodes(self):
         pass
             
-    def f_addedge(self):
-        pass
-            
+    def f_addedge(self, h_G):
+        if h_G is None:
+            h_G = torch.zeros(self.batchsize, self.num_node_type)
+        _dist = dists.Bernoulli(logits=F.log_softmax(self.addedge_layer(h_G)))            
+        samples = _dist.sample().view(self.batchsize, 1)
+        return samples
+        
     def f_addnode(self, h_G=None):
         if h_G is None:
             h_G = torch.zeros(self.batchsize, self.num_node_type)
@@ -163,9 +196,6 @@ class SGGM(torch.nn.Module):
         samples = _dist.sample().view(self.batchsize, 1)
         return samples
             
-    def initilize_h_node(self, h_nodes):
-        h_edge = self.embed_edge_layer(adj_matrix)        
-        h_G = self.propagate(h_node, h_edge, pair_list)
 
     def aggrigate(self, m, parlist):
         pass
@@ -181,5 +211,6 @@ if __name__ == '__main__':
     adj_2 += adj_2.t()    
     padded_adj_matrix = torch.stack((adj_1, adj_2)).long()
 
-    b = PropagationBlock(10)
-    
+    g()
+    #b = PropagationBlock(10)
+    #b(x, padded_adj_matrix)
